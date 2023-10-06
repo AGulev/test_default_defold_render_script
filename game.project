@@ -14,4 +14,5 @@ input_method = HiddenInputField
 
 [project]
 title = RenderScript
+dependencies#0 = https://github.com/defold/lua-language-server/releases/download/v0.0.5/release.zip
 

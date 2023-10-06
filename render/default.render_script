@@ -3,10 +3,10 @@
 -- Copyright 2009-2014 Ragnar Svensson, Christian Murray
 -- Licensed under the Defold License version 1.0 (the "License"); you may not use
 -- this file except in compliance with the License.
--- 
+--
 -- You may obtain a copy of the License, together with FAQs at
 -- https://www.defold.com/license
--- 
+--
 -- Unless required by applicable law or agreed to in writing, software distributed
 -- under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 -- CONDITIONS OF ANY KIND, either express or implied. See the License for the
@@ -23,82 +23,85 @@ local MSG_USE_STRETCH_PROJ =    hash("use_stretch_projection")
 local MSG_USE_FIXED_PROJ =      hash("use_fixed_projection")
 local MSG_USE_FIXED_FIT_PROJ =  hash("use_fixed_fit_projection")
 
+local DEFAULT_NEAR = -1
+local DEFAULT_FAR = 1
+
 --
 -- projection that centers content with maintained aspect ratio and optional zoom
 --
-local function fixed_projection(near, far, zoom)
-    local projected_width = render.get_window_width() / (zoom or 1)
-    local projected_height = render.get_window_height() / (zoom or 1)
-    local xoffset = -(projected_width - render.get_width()) / 2
-    local yoffset = -(projected_height - render.get_height()) / 2
+local function fixed_projection(camera, state)
+    local projected_width = state.window_width / (camera.zoom or 1)
+    local projected_height = state.window_height / (camera.zoom or 1)
+    local xoffset = -(projected_width - state.width) / 2
+    local yoffset = -(projected_height - state.height) / 2
     return vmath.matrix4_orthographic(xoffset, xoffset + projected_width, yoffset, yoffset + projected_height, near, far)
 end
 --
 -- projection that centers and fits content with maintained aspect ratio
 --
-local function fixed_fit_projection(near, far)
-    local width = render.get_width()
-    local height = render.get_height()
-    local window_width = render.get_window_width()
-    local window_height = render.get_window_height()
-    local zoom = math.min(window_width / width, window_height / height)
-    return fixed_projection(near, far, zoom)
+local function fixed_fit_projection(camera, state)
+    camera.zoom = math.min(state.window_width / state.width, state.window_height / state.height)
+    return fixed_projection(camera, state)
 end
 --
 -- projection that stretches content
 --
-local function stretch_projection(near, far)
-    return vmath.matrix4_orthographic(0, render.get_width(), 0, render.get_height(), near, far)
+local function stretch_projection(camera, state)
+    return vmath.matrix4_orthographic(0, state.width, 0, state.height, camera.near, camera.far)
+end
+--
+-- projection that stretches content
+--
+local function gui_projection(camera, state)
+    return vmath.matrix4_orthographic(0, state.window_width, 0, state.window_height, camera.near, camera.far)
 end
 
-local function get_projection(self)
-    return self.projection_fn(self.near, self.far, self.zoom)
+local function get_projection(camera, state)
+    return camera.projection_fn(camera, state)
 end
 
-local function update_clear_color(self, color)
-    local state = self.state
-    if not color then
-        local color = vmath.vector4(0, 0, 0, 0)
-        color.x = sys.get_config_int("render.clear_color_red", 0)
-        color.y = sys.get_config_int("render.clear_color_green", 0)
-        color.z = sys.get_config_int("render.clear_color_blue", 0)
-        color.w = sys.get_config_int("render.clear_color_alpha", 0)
-        state.clear_buffers = {[render.BUFFER_COLOR_BIT] = color, [render.BUFFER_DEPTH_BIT] = 1, [render.BUFFER_STENCIL_BIT] = 0}
-    else
+local function update_clear_color(state, color)
+    if color then
         state.clear_buffers[render.BUFFER_COLOR_BIT] = color
     end
 end
 
-local function update_projection(self)
-    
+local function update_camera(camera, state)
+    camera.proj = get_projection(camera, state)
+    camera.frustum.frustrum = camera.proj * camera.view
 end
 
-local function update_window(self)
-    local state = self.state
-
+local function update_state(state)
     state.window_width = render.get_window_width()
     state.window_height = render.get_window_height()
     state.valid = state.window_width > 0 and state.window_height > 0
-
     if not state.valid then
         return false
     end
-    
-    state.view = vmath.matrix4()
-    state.proj = get_projection(self)
-    state.frustum_options.frustum = state.proj * state.view
+    state.width = render.get_width()
+    state.height = render.get_height()
 
-    state.view_gui = vmath.matrix4()
-    state.proj_gui = vmath.matrix4_orthographic(0, state.window_width, 0, state.window_height, -1, 1)
-    state.frustum_gui_options.frustum = state.proj_gui * state.view_gui
+    for _, camera in pairs(state.cameras) do
+        update_camera(camera, state)
+    end
     return true
 end
 
-local function init_window(self)
-    local state = {}
-    state.frustum_options = {}
-    state.frustum_gui_options = {}
-    self.state = state
+local function init_camera(camera, projection_fn)
+    camera.frustum = {}
+    camera.view = vmath.matrix4()
+    camera.near = DEFAULT_NEAR
+    camera.far = DEFAULT_FAR
+    camera.projection_fn = projection_fn
+end
+
+local function init_state(state)
+    local color = vmath.vector4(0, 0, 0, 0)
+    color.x = sys.get_config_int("render.clear_color_red", 0)
+    color.y = sys.get_config_int("render.clear_color_green", 0)
+    color.z = sys.get_config_int("render.clear_color_blue", 0)
+    color.w = sys.get_config_int("render.clear_color_alpha", 0)
+    state.clear_buffers = {[render.BUFFER_COLOR_BIT] = color, [render.BUFFER_DEPTH_BIT] = 1, [render.BUFFER_STENCIL_BIT] = 0}
 end
 
 function init(self)
@@ -112,20 +115,24 @@ function init(self)
     -- msg.post("@render:", "use_stretch_projection", { near = -1, far = 1 })
     -- msg.post("@render:", "use_fixed_projection", { near = -1, far = 1, zoom = 2 })
     -- msg.post("@render:", "use_fixed_fit_projection", { near = -1, far = 1 })
-    self.near = -1
-    self.far = 1
-    self.projection_fn = stretch_projection
 
-    init_window(self)
-    update_window(self)
-    update_clear_color(self)
+    local camera_world = {}
+    init_camera(camera_world, stretch_projection)
+    local camera_gui = {}
+    init_camera(camera_gui, gui_projection)
+
+    local state = {cameras = {["camera_world"] = camera_world, ["camera_gui"] = camera_gui}}
+    state.main_camera = camera_world
+    init_state(state)
+    self.state = state
+    update_state(state)
 end
 
 function update(self)
     local state = self.state
 
     if not state.valid then
-        if not update_window(self) then
+        if not update_state(state) then
             return
         end
     end
@@ -138,9 +145,11 @@ function update(self)
 
     -- render world (sprites, tilemaps, particles etc)
     --
+    local camera_world = state.cameras.camera_world
+
     render.set_viewport(0, 0, state.window_width, state.window_height)
-    render.set_view(state.view)
-    render.set_projection(state.proj)
+    render.set_view(camera_world.view)
+    render.set_projection(camera_world.proj)
 
     render.set_depth_mask(false)
     render.disable_state(render.STATE_DEPTH_TEST)
@@ -149,46 +158,52 @@ function update(self)
     render.set_blend_func(render.BLEND_SRC_ALPHA, render.BLEND_ONE_MINUS_SRC_ALPHA)
     render.disable_state(render.STATE_CULL_FACE)
 
-    render.draw(self.tile_pred, state.frustum_options)
-    render.draw(self.particle_pred, state.frustum_options)
+    render.draw(self.tile_pred, camera_world.frustum)
+    render.draw(self.particle_pred, camera_world.frustum)
     render.draw_debug3d()
 
     -- render GUI
     --
-    render.set_view(state.view_gui)
-    render.set_projection(state.proj_gui)
+    local camera_gui = state.cameras.camera_gui
+
+    render.set_view(camera_gui.view)
+    render.set_projection(camera_gui.proj)
 
     render.enable_state(render.STATE_STENCIL_TEST)
-    render.draw(self.gui_pred, state.frustum_gui_options)
-    render.draw(self.text_pred, state.frustum_gui_options)
+    render.draw(self.gui_pred, camera_gui.frustum)
+    render.draw(self.text_pred, camera_gui.frustum)
     render.disable_state(render.STATE_STENCIL_TEST)
 end
 
 function on_message(self, message_id, message)
+    local state = self.state
+    local camera = state.main_camera
     if message_id == MSG_CLEAR_COLOR then
-        update_clear_color(self, message.color)
+        update_clear_color(state, message.color)
     elseif message_id == MSG_WINDOW_RESIZED then
-        update_window(self)
+        update_state(state)
     elseif message_id == MSG_SET_VIEW_PROJ then
-        self.view = message.view
+        camera.view = message.view
         self.camera_projection = message.projection or vmath.matrix4()
+        update_camera(camera, state)
     elseif message_id == MSG_SET_CAMERA_PROJ then
-        self.projection_fn = function() return self.camera_projection end
+        camera.projection_fn = function() return self.camera_projection end
+        update_camera(camera, state)
     elseif message_id == MSG_USE_STRETCH_PROJ then
-        self.near = message.near or -1
-        self.far = message.far or 1
-        self.projection_fn = stretch_projection
-        update_window(self)
+        camera.near = message.near or DEFAULT_NEAR
+        camera.far = message.far or DEFAULT_FAR
+        camera.projection_fn = stretch_projection
+        update_state(state)
     elseif message_id == MSG_USE_FIXED_PROJ then
-        self.near = message.near or -1
-        self.far = message.far or 1
-        self.zoom = message.zoom or 1
-        self.projection_fn = fixed_projection
-        update_window(self)
+        camera.near = message.near or DEFAULT_NEAR
+        camera.far = message.far or DEFAULT_FAR
+        camera.zoom = message.zoom or 1
+        camera.projection_fn = fixed_projection
+        update_state(state)
     elseif message_id == MSG_USE_FIXED_FIT_PROJ then
-        self.near = message.near or -1
-        self.far = message.far or 1
-        self.projection_fn = fixed_fit_projection
-        update_window(self)
+        camera.near = message.near or DEFAULT_NEAR
+        camera.far = message.far or DEFAULT_FAR
+        camera.projection_fn = fixed_fit_projection
+        update_state(state)
     end
 end
