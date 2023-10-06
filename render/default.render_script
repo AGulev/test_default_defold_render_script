@@ -25,16 +25,20 @@ local MSG_USE_FIXED_FIT_PROJ =  hash("use_fixed_fit_projection")
 
 local DEFAULT_NEAR = -1
 local DEFAULT_FAR = 1
+local DEFAULT_ZOOM = 1
 
 --
 -- projection that centers content with maintained aspect ratio and optional zoom
 --
 local function fixed_projection(camera, state)
-    local projected_width = state.window_width / (camera.zoom or 1)
-    local projected_height = state.window_height / (camera.zoom or 1)
-    local xoffset = -(projected_width - state.width) / 2
-    local yoffset = -(projected_height - state.height) / 2
-    return vmath.matrix4_orthographic(xoffset, xoffset + projected_width, yoffset, yoffset + projected_height, near, far)
+    camera.zoom = camera.zoom or DEFAULT_ZOOM
+    local projected_width = state.window_width / camera.zoom
+    local projected_height = state.window_height / camera.zoom
+    local left = -(projected_width - state.width) / 2
+    local bottom = -(projected_height - state.height) / 2
+    local right = left + projected_width
+    local top = bottom + projected_height
+    return vmath.matrix4_orthographic(left, right, bottom, top, camera.near, camera.far)
 end
 --
 -- projection that centers and fits content with maintained aspect ratio
@@ -87,28 +91,47 @@ local function update_state(state)
     return true
 end
 
-local function init_camera(camera, projection_fn)
+local function init_camera(state, name, projection_fn, is_main_camera)
+    local camera = {}
     camera.frustum = {}
     camera.view = vmath.matrix4()
     camera.near = DEFAULT_NEAR
     camera.far = DEFAULT_FAR
+    camera.zoom = DEFAULT_ZOOM
     camera.projection_fn = projection_fn
+    state.cameras[name] = camera
+    if is_main_camera then
+        state.main_camera = camera
+    end
 end
 
-local function init_state(state)
+local function init_state()
+    local state = {}
     local color = vmath.vector4(0, 0, 0, 0)
     color.x = sys.get_config_int("render.clear_color_red", 0)
     color.y = sys.get_config_int("render.clear_color_green", 0)
     color.z = sys.get_config_int("render.clear_color_blue", 0)
     color.w = sys.get_config_int("render.clear_color_alpha", 0)
-    state.clear_buffers = {[render.BUFFER_COLOR_BIT] = color, [render.BUFFER_DEPTH_BIT] = 1, [render.BUFFER_STENCIL_BIT] = 0}
+    state.clear_buffers = {
+        [render.BUFFER_COLOR_BIT] = color,
+        [render.BUFFER_DEPTH_BIT] = 1,
+        [render.BUFFER_STENCIL_BIT] = 0
+    }
+    state.cameras = {}
+    return state
+end
+
+local function create_predicates(...)
+    local arg = {...}
+    local predicates = {}
+    for _, predicate_name in pairs(arg) do
+        predicates[predicate_name] = render.predicate({predicate_name})
+    end
+    return predicates
 end
 
 function init(self)
-    self.tile_pred = render.predicate({"tile"})
-    self.gui_pred = render.predicate({"gui"})
-    self.text_pred = render.predicate({"text"})
-    self.particle_pred = render.predicate({"particle"})
+    self.predicates = create_predicates("tile", "gui", "text", "particle")
 
     -- default is stretch projection. copy from builtins and change for different projection
     -- or send a message to the render script to change projection:
@@ -116,15 +139,10 @@ function init(self)
     -- msg.post("@render:", "use_fixed_projection", { near = -1, far = 1, zoom = 2 })
     -- msg.post("@render:", "use_fixed_fit_projection", { near = -1, far = 1 })
 
-    local camera_world = {}
-    init_camera(camera_world, stretch_projection)
-    local camera_gui = {}
-    init_camera(camera_gui, gui_projection)
-
-    local state = {cameras = {["camera_world"] = camera_world, ["camera_gui"] = camera_gui}}
-    state.main_camera = camera_world
-    init_state(state)
+    local state = init_state()
     self.state = state
+    init_camera(state, "camera_world", stretch_projection, true)
+    init_camera(state, "camera_gui", gui_projection)
     update_state(state)
 end
 
@@ -136,6 +154,8 @@ function update(self)
             return
         end
     end
+
+    local predicates = self.predicates
 
     -- clear screen buffers
     --
@@ -158,8 +178,8 @@ function update(self)
     render.set_blend_func(render.BLEND_SRC_ALPHA, render.BLEND_ONE_MINUS_SRC_ALPHA)
     render.disable_state(render.STATE_CULL_FACE)
 
-    render.draw(self.tile_pred, camera_world.frustum)
-    render.draw(self.particle_pred, camera_world.frustum)
+    render.draw(predicates.tile, camera_world.frustum)
+    render.draw(predicates.particle, camera_world.frustum)
     render.draw_debug3d()
 
     -- render GUI
@@ -170,8 +190,8 @@ function update(self)
     render.set_projection(camera_gui.proj)
 
     render.enable_state(render.STATE_STENCIL_TEST)
-    render.draw(self.gui_pred, camera_gui.frustum)
-    render.draw(self.text_pred, camera_gui.frustum)
+    render.draw(predicates.gui, camera_gui.frustum)
+    render.draw(predicates.text, camera_gui.frustum)
     render.disable_state(render.STATE_STENCIL_TEST)
 end
 
@@ -190,19 +210,19 @@ function on_message(self, message_id, message)
         camera.projection_fn = function() return self.camera_projection end
         update_camera(camera, state)
     elseif message_id == MSG_USE_STRETCH_PROJ then
-        camera.near = message.near or DEFAULT_NEAR
-        camera.far = message.far or DEFAULT_FAR
+        camera.near = message.near or camera.near
+        camera.far = message.far or camera.far
         camera.projection_fn = stretch_projection
         update_state(state)
     elseif message_id == MSG_USE_FIXED_PROJ then
-        camera.near = message.near or DEFAULT_NEAR
-        camera.far = message.far or DEFAULT_FAR
-        camera.zoom = message.zoom or 1
+        camera.near = message.near or camera.near
+        camera.far = message.far or camera.far
+        camera.zoom = message.zoom or camera.zoom
         camera.projection_fn = fixed_projection
         update_state(state)
     elseif message_id == MSG_USE_FIXED_FIT_PROJ then
-        camera.near = message.near or DEFAULT_NEAR
-        camera.far = message.far or DEFAULT_FAR
+        camera.near = message.near or camera.near
+        camera.far = message.far or camera.far
         camera.projection_fn = fixed_fit_projection
         update_state(state)
     end
