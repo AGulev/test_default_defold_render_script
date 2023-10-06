@@ -16,6 +16,7 @@
 -- message constants
 --
 local MSG_CLEAR_COLOR =         hash("clear_color")
+local MSG_WINDOW_RESIZED =      hash("window_resized")
 local MSG_SET_VIEW_PROJ =       hash("set_view_projection")
 local MSG_SET_CAMERA_PROJ =     hash("use_camera_projection")
 local MSG_USE_STRETCH_PROJ =    hash("use_stretch_projection")
@@ -68,19 +69,36 @@ local function update_clear_color(self, color)
     end
 end
 
+local function update_projection(self)
+    
+end
+
 local function update_window(self)
     local state = self.state
 
     state.window_width = render.get_window_width()
     state.window_height = render.get_window_height()
+    state.valid = state.window_width > 0 and state.window_height > 0
 
+    if not state.valid then
+        return false
+    end
+    
     state.view = vmath.matrix4()
     state.proj = get_projection(self)
-    state.frustum_options = {frustum = state.proj * state.view}
+    state.frustum_options.frustum = state.proj * state.view
 
     state.view_gui = vmath.matrix4()
     state.proj_gui = vmath.matrix4_orthographic(0, state.window_width, 0, state.window_height, -1, 1)
-    state.frustum_gui_options = {frustum = state.proj_gui * state.view_gui}
+    state.frustum_gui_options.frustum = state.proj_gui * state.view_gui
+    return true
+end
+
+local function init_window(self)
+    local state = {}
+    state.frustum_options = {}
+    state.frustum_gui_options = {}
+    self.state = state
 end
 
 function init(self)
@@ -98,7 +116,7 @@ function init(self)
     self.far = 1
     self.projection_fn = stretch_projection
 
-    self.state = {}
+    init_window(self)
     update_window(self)
     update_clear_color(self)
 end
@@ -106,8 +124,10 @@ end
 function update(self)
     local state = self.state
 
-    if state.window_width == 0 or state.window_height == 0 then
-        return
+    if not state.valid then
+        if not update_window(self) then
+            return
+        end
     end
 
     -- clear screen buffers
@@ -147,23 +167,28 @@ end
 function on_message(self, message_id, message)
     if message_id == MSG_CLEAR_COLOR then
         update_clear_color(self, message.color)
+    elseif message_id == MSG_WINDOW_RESIZED then
+        update_window(self)
     elseif message_id == MSG_SET_VIEW_PROJ then
         self.view = message.view
-        self.projection = message.projection
+        self.camera_projection = message.projection or vmath.matrix4()
     elseif message_id == MSG_SET_CAMERA_PROJ then
-        self.projection_fn = function() return self.projection or vmath.matrix4() end
+        self.projection_fn = function() return self.camera_projection end
     elseif message_id == MSG_USE_STRETCH_PROJ then
         self.near = message.near or -1
         self.far = message.far or 1
         self.projection_fn = stretch_projection
+        update_window(self)
     elseif message_id == MSG_USE_FIXED_PROJ then
         self.near = message.near or -1
         self.far = message.far or 1
         self.zoom = message.zoom or 1
         self.projection_fn = fixed_projection
+        update_window(self)
     elseif message_id == MSG_USE_FIXED_FIT_PROJ then
         self.near = message.near or -1
         self.far = message.far or 1
         self.projection_fn = fixed_fit_projection
+        update_window(self)
     end
 end
