@@ -24,8 +24,8 @@ local MSG_USE_FIXED_PROJ =      hash("use_fixed_projection")
 local MSG_USE_FIXED_FIT_PROJ =  hash("use_fixed_fit_projection")
 
 local DEFAULT_NEAR = -1
-local DEFAULT_FAR = 1
-local DEFAULT_ZOOM = 1
+local DEFAULT_FAR =   1
+local DEFAULT_ZOOM =  1
 
 --
 -- projection that centers content with maintained aspect ratio and optional zoom
