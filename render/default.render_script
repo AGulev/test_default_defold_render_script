@@ -1,0 +1,169 @@
+-- Copyright 2020-2023 The Defold Foundation
+-- Copyright 2014-2020 King
+-- Copyright 2009-2014 Ragnar Svensson, Christian Murray
+-- Licensed under the Defold License version 1.0 (the "License"); you may not use
+-- this file except in compliance with the License.
+-- 
+-- You may obtain a copy of the License, together with FAQs at
+-- https://www.defold.com/license
+-- 
+-- Unless required by applicable law or agreed to in writing, software distributed
+-- under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+-- CONDITIONS OF ANY KIND, either express or implied. See the License for the
+-- specific language governing permissions and limitations under the License.
+
+--
+-- message constants
+--
+local MSG_CLEAR_COLOR =         hash("clear_color")
+local MSG_SET_VIEW_PROJ =       hash("set_view_projection")
+local MSG_SET_CAMERA_PROJ =     hash("use_camera_projection")
+local MSG_USE_STRETCH_PROJ =    hash("use_stretch_projection")
+local MSG_USE_FIXED_PROJ =      hash("use_fixed_projection")
+local MSG_USE_FIXED_FIT_PROJ =  hash("use_fixed_fit_projection")
+
+--
+-- projection that centers content with maintained aspect ratio and optional zoom
+--
+local function fixed_projection(near, far, zoom)
+    local projected_width = render.get_window_width() / (zoom or 1)
+    local projected_height = render.get_window_height() / (zoom or 1)
+    local xoffset = -(projected_width - render.get_width()) / 2
+    local yoffset = -(projected_height - render.get_height()) / 2
+    return vmath.matrix4_orthographic(xoffset, xoffset + projected_width, yoffset, yoffset + projected_height, near, far)
+end
+--
+-- projection that centers and fits content with maintained aspect ratio
+--
+local function fixed_fit_projection(near, far)
+    local width = render.get_width()
+    local height = render.get_height()
+    local window_width = render.get_window_width()
+    local window_height = render.get_window_height()
+    local zoom = math.min(window_width / width, window_height / height)
+    return fixed_projection(near, far, zoom)
+end
+--
+-- projection that stretches content
+--
+local function stretch_projection(near, far)
+    return vmath.matrix4_orthographic(0, render.get_width(), 0, render.get_height(), near, far)
+end
+
+local function get_projection(self)
+    return self.projection_fn(self.near, self.far, self.zoom)
+end
+
+local function update_clear_color(self, color)
+    local state = self.state
+    if not color then
+        local color = vmath.vector4(0, 0, 0, 0)
+        color.x = sys.get_config_int("render.clear_color_red", 0)
+        color.y = sys.get_config_int("render.clear_color_green", 0)
+        color.z = sys.get_config_int("render.clear_color_blue", 0)
+        color.w = sys.get_config_int("render.clear_color_alpha", 0)
+        state.clear_buffers = {[render.BUFFER_COLOR_BIT] = color, [render.BUFFER_DEPTH_BIT] = 1, [render.BUFFER_STENCIL_BIT] = 0}
+    else
+        state.clear_buffers[render.BUFFER_COLOR_BIT] = color
+    end
+end
+
+local function update_window(self)
+    local state = self.state
+
+    state.window_width = render.get_window_width()
+    state.window_height = render.get_window_height()
+
+    state.view = vmath.matrix4()
+    state.proj = get_projection(self)
+    state.frustum_options = {frustum = state.proj * state.view}
+
+    state.view_gui = vmath.matrix4()
+    state.proj_gui = vmath.matrix4_orthographic(0, state.window_width, 0, state.window_height, -1, 1)
+    state.frustum_gui_options = {frustum = state.proj_gui * state.view_gui}
+end
+
+function init(self)
+    self.tile_pred = render.predicate({"tile"})
+    self.gui_pred = render.predicate({"gui"})
+    self.text_pred = render.predicate({"text"})
+    self.particle_pred = render.predicate({"particle"})
+
+    -- default is stretch projection. copy from builtins and change for different projection
+    -- or send a message to the render script to change projection:
+    -- msg.post("@render:", "use_stretch_projection", { near = -1, far = 1 })
+    -- msg.post("@render:", "use_fixed_projection", { near = -1, far = 1, zoom = 2 })
+    -- msg.post("@render:", "use_fixed_fit_projection", { near = -1, far = 1 })
+    self.near = -1
+    self.far = 1
+    self.projection_fn = stretch_projection
+
+    self.state = {}
+    update_window(self)
+    update_clear_color(self)
+end
+
+function update(self)
+    local state = self.state
+
+    if state.window_width == 0 or state.window_height == 0 then
+        return
+    end
+
+    -- clear screen buffers
+    --
+    render.set_depth_mask(true)
+    render.set_stencil_mask(0xff)
+    render.clear(state.clear_buffers)
+
+    -- render world (sprites, tilemaps, particles etc)
+    --
+    render.set_viewport(0, 0, state.window_width, state.window_height)
+    render.set_view(state.view)
+    render.set_projection(state.proj)
+
+    render.set_depth_mask(false)
+    render.disable_state(render.STATE_DEPTH_TEST)
+    render.disable_state(render.STATE_STENCIL_TEST)
+    render.enable_state(render.STATE_BLEND)
+    render.set_blend_func(render.BLEND_SRC_ALPHA, render.BLEND_ONE_MINUS_SRC_ALPHA)
+    render.disable_state(render.STATE_CULL_FACE)
+
+    render.draw(self.tile_pred, state.frustum_options)
+    render.draw(self.particle_pred, state.frustum_options)
+    render.draw_debug3d()
+
+    -- render GUI
+    --
+    render.set_view(state.view_gui)
+    render.set_projection(state.proj_gui)
+
+    render.enable_state(render.STATE_STENCIL_TEST)
+    render.draw(self.gui_pred, state.frustum_gui_options)
+    render.draw(self.text_pred, state.frustum_gui_options)
+    render.disable_state(render.STATE_STENCIL_TEST)
+end
+
+function on_message(self, message_id, message)
+    if message_id == MSG_CLEAR_COLOR then
+        update_clear_color(self, message.color)
+    elseif message_id == MSG_SET_VIEW_PROJ then
+        self.view = message.view
+        self.projection = message.projection
+    elseif message_id == MSG_SET_CAMERA_PROJ then
+        self.projection_fn = function() return self.projection or vmath.matrix4() end
+    elseif message_id == MSG_USE_STRETCH_PROJ then
+        self.near = message.near or -1
+        self.far = message.far or 1
+        self.projection_fn = stretch_projection
+    elseif message_id == MSG_USE_FIXED_PROJ then
+        self.near = message.near or -1
+        self.far = message.far or 1
+        self.zoom = message.zoom or 1
+        self.projection_fn = fixed_projection
+    elseif message_id == MSG_USE_FIXED_FIT_PROJ then
+        self.near = message.near or -1
+        self.far = message.far or 1
+        self.projection_fn = fixed_fit_projection
+    end
+end
