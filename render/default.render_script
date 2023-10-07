@@ -80,7 +80,6 @@ local function update_state(state)
     end
     state.width = render.get_width()
     state.height = render.get_height()
-
     for _, camera in pairs(state.cameras) do
         update_camera(camera, state)
     end
