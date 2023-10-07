@@ -54,7 +54,7 @@ local function get_stretch_projection(camera, state)
     return vmath.matrix4_orthographic(0, state.width, 0, state.height, camera.near, camera.far)
 end
 --
--- projection that stretches content
+-- projection for gui
 --
 local function get_gui_projection(camera, state)
     return vmath.matrix4_orthographic(0, state.window_width, 0, state.window_height, camera.near, camera.far)
