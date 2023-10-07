@@ -30,7 +30,7 @@ local DEFAULT_ZOOM =  1
 --
 -- projection that centers content with maintained aspect ratio and optional zoom
 --
-local function fixed_projection(camera, state)
+local function get_fixed_projection(camera, state)
     camera.zoom = camera.zoom or DEFAULT_ZOOM
     local projected_width = state.window_width / camera.zoom
     local projected_height = state.window_height / camera.zoom
@@ -43,25 +43,21 @@ end
 --
 -- projection that centers and fits content with maintained aspect ratio
 --
-local function fixed_fit_projection(camera, state)
+local function get_fixed_fit_projection(camera, state)
     camera.zoom = math.min(state.window_width / state.width, state.window_height / state.height)
-    return fixed_projection(camera, state)
+    return get_fixed_projection(camera, state)
 end
 --
 -- projection that stretches content
 --
-local function stretch_projection(camera, state)
+local function get_stretch_projection(camera, state)
     return vmath.matrix4_orthographic(0, state.width, 0, state.height, camera.near, camera.far)
 end
 --
 -- projection that stretches content
 --
-local function gui_projection(camera, state)
+local function get_gui_projection(camera, state)
     return vmath.matrix4_orthographic(0, state.window_width, 0, state.window_height, camera.near, camera.far)
-end
-
-local function get_projection(camera, state)
-    return camera.projection_fn(camera, state)
 end
 
 local function update_clear_color(state, color)
@@ -71,7 +67,7 @@ local function update_clear_color(state, color)
 end
 
 local function update_camera(camera, state)
-    camera.proj = get_projection(camera, state)
+    camera.proj = camera.projection_fn(camera, state)
     camera.frustum.frustrum = camera.proj * camera.view
 end
 
@@ -91,20 +87,6 @@ local function update_state(state)
     return true
 end
 
-local function init_camera(state, name, projection_fn, is_main_camera)
-    local camera = {}
-    camera.frustum = {}
-    camera.view = vmath.matrix4()
-    camera.near = DEFAULT_NEAR
-    camera.far = DEFAULT_FAR
-    camera.zoom = DEFAULT_ZOOM
-    camera.projection_fn = projection_fn
-    state.cameras[name] = camera
-    if is_main_camera then
-        state.main_camera = camera
-    end
-end
-
 local function init_state()
     local state = {}
     local color = vmath.vector4(0, 0, 0, 0)
@@ -121,6 +103,14 @@ local function init_state()
     return state
 end
 
+local function init_camera(camera, projection_fn, near, far, zoom)
+    camera.view = vmath.matrix4()
+    camera.near = near == nil and DEFAULT_NEAR or near
+    camera.far = far == nil and DEFAULT_FAR or far
+    camera.zoom = zoom == nil and DEFAULT_ZOOM or zoom
+    camera.projection_fn = projection_fn
+end
+
 local function create_predicates(...)
     local arg = {...}
     local predicates = {}
@@ -128,6 +118,16 @@ local function create_predicates(...)
         predicates[predicate_name] = render.predicate({predicate_name})
     end
     return predicates
+end
+
+local function create_camera(state, name, is_main_camera)
+    local camera = {}
+    camera.frustum = {}
+    state.cameras[name] = camera
+    if is_main_camera then
+        state.main_camera = camera
+    end
+    return camera
 end
 
 function init(self)
@@ -141,8 +141,10 @@ function init(self)
 
     local state = init_state()
     self.state = state
-    init_camera(state, "camera_world", stretch_projection, true)
-    init_camera(state, "camera_gui", gui_projection)
+    local camera_world = create_camera(state, "camera_world", true)
+    init_camera(camera_world, get_stretch_projection)
+    local camera_gui = create_camera(state, "camera_gui")
+    init_camera(camera_gui, get_gui_projection)
     update_state(state)
 end
 
@@ -166,7 +168,6 @@ function update(self)
     -- render world (sprites, tilemaps, particles etc)
     --
     local camera_world = state.cameras.camera_world
-
     render.set_viewport(0, 0, state.window_width, state.window_height)
     render.set_view(camera_world.view)
     render.set_projection(camera_world.proj)
@@ -185,10 +186,8 @@ function update(self)
     -- render GUI
     --
     local camera_gui = state.cameras.camera_gui
-
     render.set_view(camera_gui.view)
     render.set_projection(camera_gui.proj)
-
     render.enable_state(render.STATE_STENCIL_TEST)
     render.draw(predicates.gui, camera_gui.frustum)
     render.draw(predicates.text, camera_gui.frustum)
@@ -210,20 +209,13 @@ function on_message(self, message_id, message)
         camera.projection_fn = function() return self.camera_projection end
         update_camera(camera, state)
     elseif message_id == MSG_USE_STRETCH_PROJ then
-        camera.near = message.near or camera.near
-        camera.far = message.far or camera.far
-        camera.projection_fn = stretch_projection
+        init_camera(camera, get_stretch_projection, message.near, message.far)
         update_state(state)
     elseif message_id == MSG_USE_FIXED_PROJ then
-        camera.near = message.near or camera.near
-        camera.far = message.far or camera.far
-        camera.zoom = message.zoom or camera.zoom
-        camera.projection_fn = fixed_projection
+        init_camera(camera, get_fixed_projection, message.near, message.far, message.zoom)
         update_state(state)
     elseif message_id == MSG_USE_FIXED_FIT_PROJ then
-        camera.near = message.near or camera.near
-        camera.far = message.far or camera.far
-        camera.projection_fn = fixed_fit_projection
+        init_camera(camera, get_fixed_fit_projection, message.near, message.far)
         update_state(state)
     end
 end
