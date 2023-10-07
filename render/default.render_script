@@ -150,7 +150,6 @@ end
 
 function update(self)
     local state = self.state
-
     if not state.valid then
         if not update_state(state) then
             return
@@ -158,7 +157,6 @@ function update(self)
     end
 
     local predicates = self.predicates
-
     -- clear screen buffers
     --
     render.set_depth_mask(true)
@@ -210,12 +208,12 @@ function on_message(self, message_id, message)
         update_camera(camera, state)
     elseif message_id == MSG_USE_STRETCH_PROJ then
         init_camera(camera, get_stretch_projection, message.near, message.far)
-        update_state(state)
+        update_camera(camera, state)
     elseif message_id == MSG_USE_FIXED_PROJ then
         init_camera(camera, get_fixed_projection, message.near, message.far, message.zoom)
-        update_state(state)
+        update_camera(camera, state)
     elseif message_id == MSG_USE_FIXED_FIT_PROJ then
         init_camera(camera, get_fixed_fit_projection, message.near, message.far)
-        update_state(state)
+        update_camera(camera, state)
     end
 end
