@@ -87,22 +87,6 @@ local function update_state(state)
     return true
 end
 
-local function init_state()
-    local state = {}
-    local color = vmath.vector4(0, 0, 0, 0)
-    color.x = sys.get_config_int("render.clear_color_red", 0)
-    color.y = sys.get_config_int("render.clear_color_green", 0)
-    color.z = sys.get_config_int("render.clear_color_blue", 0)
-    color.w = sys.get_config_int("render.clear_color_alpha", 0)
-    state.clear_buffers = {
-        [render.BUFFER_COLOR_BIT] = color,
-        [render.BUFFER_DEPTH_BIT] = 1,
-        [render.BUFFER_STENCIL_BIT] = 0
-    }
-    state.cameras = {}
-    return state
-end
-
 local function init_camera(camera, projection_fn, near, far, zoom)
     camera.view = vmath.matrix4()
     camera.near = near == nil and DEFAULT_NEAR or near
@@ -130,6 +114,22 @@ local function create_camera(state, name, is_main_camera)
     return camera
 end
 
+local function create_state()
+    local state = {}
+    local color = vmath.vector4(0, 0, 0, 0)
+    color.x = sys.get_config_int("render.clear_color_red", 0)
+    color.y = sys.get_config_int("render.clear_color_green", 0)
+    color.z = sys.get_config_int("render.clear_color_blue", 0)
+    color.w = sys.get_config_int("render.clear_color_alpha", 0)
+    state.clear_buffers = {
+        [render.BUFFER_COLOR_BIT] = color,
+        [render.BUFFER_DEPTH_BIT] = 1,
+        [render.BUFFER_STENCIL_BIT] = 0
+    }
+    state.cameras = {}
+    return state
+end
+
 function init(self)
     self.predicates = create_predicates("tile", "gui", "text", "particle")
 
@@ -139,7 +139,7 @@ function init(self)
     -- msg.post("@render:", "use_fixed_projection", { near = -1, far = 1, zoom = 2 })
     -- msg.post("@render:", "use_fixed_fit_projection", { near = -1, far = 1 })
 
-    local state = init_state()
+    local state = create_state()
     self.state = state
     local camera_world = create_camera(state, "camera_world", true)
     init_camera(camera_world, get_stretch_projection)
