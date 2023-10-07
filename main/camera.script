@@ -1,0 +1,44 @@
+function init(self)
+    self.counter = 0
+    self.num = 0
+end
+
+local main = {
+    hash("use_fixed_projection"),
+    hash("use_fixed_fit_projection"),
+    hash("use_stretch_projection"),
+    hash("use_fixed_projection")
+}
+
+local sizes = {
+    {width = 1200, height = 1200},
+    {width = 480, height = 800},
+    {width = 600, height = 950},
+    {width = 960, height = 640},
+}
+
+local infos = {
+    {far = 2, near = -3, zoom = 0.5},
+    {far = 1, near = -2, zoom = 1},
+    {far = 3, near = -1, zoom = 1},
+    {far = 1, near = -1, zoom = 1},
+}
+
+function update(self)
+    self.counter = self.counter + 1
+    if self.counter == 100 then
+        self.counter = 0
+        self.num = self.num + 1
+        if self.num > #main then
+            self.counter = 1000
+
+            msg.post("#camera", "acquire_camera_focus")
+            msg.post("@render:", "use_camera_projection")
+            go.animate(".", "position", go.PLAYBACK_LOOP_PINGPONG, vmath.vector3(814, 58, 932), go.EASING_INSINE, 2)
+            return
+        end
+        print(main[self.num])
+        msg.post("@render:", main[self.num], infos[self.num])
+        msg.post("@render:", "resize", sizes[self.num] )
+    end
+end

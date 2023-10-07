@@ -78,6 +78,12 @@ local function update_state(state)
     if not state.valid then
         return false
     end
+    -- Make sure state updated only once when resize window
+    if state.window_width == state.prev_window_width and state.window_height == state.prev_window_height then
+        return true
+    end
+    state.prev_window_width = state.window_width
+    state.prev_window_height = state.window_height
     state.width = render.get_width()
     state.height = render.get_height()
     for _, camera in pairs(state.cameras) do
@@ -203,6 +209,7 @@ function on_message(self, message_id, message)
         self.camera_projection = message.projection or vmath.matrix4()
         update_camera(camera, state)
     elseif message_id == MSG_SET_CAMERA_PROJ then
+        self.camera_projection = message.projection or vmath.matrix4()
         camera.projection_fn = function() return self.camera_projection end
         update_camera(camera, state)
     elseif message_id == MSG_USE_STRETCH_PROJ then
