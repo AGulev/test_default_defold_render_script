@@ -31,10 +31,15 @@ function update(self)
         self.num = self.num + 1
         if self.num > #main then
             self.counter = 1000
-
+            print("[ortographic camera]")
             msg.post("#camera", "acquire_camera_focus")
             msg.post("@render:", "use_camera_projection")
             go.animate(".", "position", go.PLAYBACK_LOOP_PINGPONG, vmath.vector3(814, 58, 932), go.EASING_INSINE, 2)
+            timer.delay(1, false, function()
+                msg.post("#camera", "release_camera_focus")
+                print("[perspective camera]")
+                msg.post("3d#main", "activate")
+            end)
             return
         end
         print(main[self.num])
