@@ -16,3 +16,9 @@ input_method = HiddenInputField
 title = Render Script Test
 dependencies#0 = https://github.com/defold/lua-language-server/releases/download/v0.0.5/release.zip
 
+[render]
+clear_color_red = 0.5
+clear_color_green = 0.5
+clear_color_blue = 0.5
+clear_color_alpha = 0.5
+
