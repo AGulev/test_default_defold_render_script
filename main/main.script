@@ -1,3 +1,5 @@
+local camera = require("render.camera")
+
 function init(self)
 
     -- rotate the cube
@@ -28,8 +30,7 @@ end
 function on_message(self, message_id, message)
     if message_id == hash("activate") then
         msg.post("@render:", "clear_color", {color = vmath.vector4(0)})
+        camera.use("camera_3d#camera")
         msg.post(".", "acquire_input_focus")
-        msg.post("@render:", "use_camera_projection")
-        msg.post("camera_3d#camera", "acquire_camera_focus")
     end
 end

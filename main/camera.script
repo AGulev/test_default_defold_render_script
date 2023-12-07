@@ -1,13 +1,18 @@
+local camera = require("render.camera")
+
+local TIME_COUNTER = 100
+local TIME_SEC = 2
+
 function init(self)
     self.counter = 0
     self.num = 0
 end
 
 local main = {
-    hash("use_fixed_projection"),
-    hash("use_fixed_fit_projection"),
-    hash("use_stretch_projection"),
-    hash("use_fixed_projection")
+    camera.PROJ_FIXED,
+    camera.PROJ_FIXED_FIT,
+    camera.PROJ_STRETCH,
+    camera.PROJ_FIXED
 }
 
 local sizes = {
@@ -24,26 +29,43 @@ local infos = {
     {far = 1, near = -1, zoom = 1},
 }
 
+--[[
+User APIs in go world.
+
+If user want to use a defaul projection:
+camera.use(camera.PROJ_FIXED_FIT)
+camera.use(camera.PROJ_FIXED)
+camera.use(camera.PROJ_STRETCH)
+
+If user wants to use camera:
+camera.use("#camera")
+camera.disuse("#camera")
+
+The first used camera is default camera.
+If there is no camera used - then projection used as default camera.
+]]
+
+
 function update(self)
     self.counter = self.counter + 1
-    if self.counter == 100 then
+    if self.counter == TIME_COUNTER then
         self.counter = 0
         self.num = self.num + 1
         if self.num > #main then
             self.counter = 1000
             print("[ortographic camera]")
-            msg.post("#camera", "acquire_camera_focus")
-            msg.post("@render:", "use_camera_projection")
-            go.animate(".", "position", go.PLAYBACK_LOOP_PINGPONG, vmath.vector3(814, 58, 932), go.EASING_INSINE, 2)
-            timer.delay(1, false, function()
-                msg.post("#camera", "release_camera_focus")
+            camera.use("#camera")
+            go.animate(".", "position", go.PLAYBACK_LOOP_PINGPONG, vmath.vector3(814, 58, 932), go.EASING_INSINE, TIME_SEC)
+            timer.delay(TIME_SEC, false, function()
+                camera.disuse("#camera")
                 print("[perspective camera]")
                 msg.post("3d#main", "activate")
             end)
             return
         end
         print(main[self.num])
-        msg.post("@render:", main[self.num], infos[self.num])
+        local inf = infos[self.num]
+        camera.use(main[self.num], inf.near, inf.far, inf.zoom)
         msg.post("@render:", "resize", sizes[self.num] )
     end
 end
